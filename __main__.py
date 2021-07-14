@@ -19,7 +19,7 @@ def postframe( frame ):
 
     # https://bugs.python.org/issue3244
     url = 'https://framespot.com/'
-    boundary = ''.join( random.choices('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', k=70) ) # RFC2046: boundary must be no longer than 70 characters
+    boundary = ''.join(random.choices('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', k=70)) # RFC2046: boundary must be no longer than 70 characters
     headers = {
         'Content-Type': 'multipart/form-data; boundary=%s' % boundary,
         'Accept': 'application/json',
@@ -47,24 +47,24 @@ def postframe( frame ):
             if result_headers.get('Content-Encoding') == 'zlib':
                 decompressor = zlib.decompressobj()
             elif result_headers.get('Content-Encoding') == 'gzip':
-                decompressor = zlib.decompressobj( zlib.MAX_WBITS|16 )
+                decompressor = zlib.decompressobj(zlib.MAX_WBITS|16)
             elif result_headers.get('Content-Encoding') == 'deflate':
-                decompressor = zlib.decompressobj( -zlib.MAX_WBITS )
+                decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
             elif result_headers.get('Content-Encoding'):
-                decompressor = zlib.decompressobj( zlib.MAX_WBITS|32 ) # automatic header detection
+                decompressor = zlib.decompressobj(zlib.MAX_WBITS|32) # automatic header detection
             result_data = b''
             while True:
-                buf = response.read( 0x1000 )
+                buf = response.read(0x1000)
                 if not buf:
                     break
                 result_data += decompressor.decompress(buf) if decompressor else buf
                 assert len(result_data) < 0x1000000
             if decompressor:
                 result_data += decompressor.flush()
-        return json.loads( result_data )
+        return json.loads(result_data)
 
     except urllib.error.HTTPError:
-        traceback.print_exc( file=sys.stderr )
+        traceback.print_exc(file=sys.stderr)
     return None
 
 
@@ -83,8 +83,8 @@ def inference( frame_generator ):
                 import PIL.Image
                 with PIL.Image.open(frame) as img:
                     white_background = PIL.Image.new('RGBA', img.size, (255,255,255))
-                    img = PIL.Image.alpha_composite( white_background, img.convert('RGBA') ).convert('RGB')
-                    frame = numpy.array(img, dtype=numpy.uint8)[...,::-1].copy()
+                    img = PIL.Image.alpha_composite(white_background, img.convert('RGBA')).convert('RGB')
+                    frame = numpy.array(img, dtype=numpy.uint8)[...,::-1].copy() # RGB->BGR
             except ImportError:
                 frame = cv2.imread(filepath, cv2.IMREAD_COLOR)
         # ask
@@ -95,11 +95,10 @@ def inference( frame_generator ):
         if previous:
             yield *previous, None
         previous = frame, offset, lookup
-        # whitelist trailer/teaser/...
-        lookup_filtered = [result for result in lookup if not any(True for f in result['frames'] if f['type'] == 'trailer')]
-        if not lookup_filtered:
+        # group by uri
+        if not lookup:
             continue
-        results.append(lookup_filtered)
+        results.append(lookup)
         grouped = [list(group) for k, group in
                    itertools.groupby(sorted([item for result in results for item in result], key=lambda x: x['uri']), lambda x: x['uri'])]
         grouped.sort(key=lambda x:len(x), reverse=True)
@@ -110,6 +109,10 @@ def inference( frame_generator ):
     # To filter, or not to filter: that is the question...
     copyrights = []
     for group in grouped:
+        # whitelist frames in trailer/teaser/...
+        if not [result for result in group if not any(True for f in result['frames'] if f['type'] == 'trailer')]:
+            continue
+
         filter_result = False
         # video: accurate if 3 different frame-offset
         if len(set(frame['offset'] for result in group for frame in result['frames'])) >= 3:
@@ -249,7 +252,7 @@ if __name__ == '__main__':
         print('Inference:', filepath, 'seek:',seek, 'duration:',duration, 'scene:['+str(scene_min)+':'+str(scene_max)+']', file=sys.stderr)
     frame_generator = []
     if imghdr.what(filepath):
-        frame_generator.append( (filepath, None) )
+        frame_generator.append((filepath, None))
     else:
         frame_generator = scenecut(filepath, scene_min=scene_min, scene_max=scene_max, seek=seek, duration=duration)
 
