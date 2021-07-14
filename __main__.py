@@ -119,7 +119,7 @@ def inference( frame_generator ):
             filter_result = True
         # still-image or short-video: if matches 'image' or translation-matrix and perceptual-hash
         elif framecounter <= 2 and any(True for result in group for frame in result['frames'] if
-                frame['type'] == 'image' or (frame['matrix'] and frame['hamming'])):
+                frame['type'] == 'image' or (frame['matrix'] is not None and frame['hamming'] is not None)):
             filter_result = True
         if filter_result:
             copyrights.append(group[0])
