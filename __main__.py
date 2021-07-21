@@ -115,9 +115,9 @@ def inference( frame_generator ):
 
         filter_result = False
         # video: accurate if 3 different frame-offset
-        if len(set(frame['offset'] for result in group for frame in result['frames'])) >= 3:
+        if len(set(frame['offset'] for result in group for frame in result['frames'] if frame['matrix'] is not None)) >= 3:
             filter_result = True
-        # still-image or short-video: if matches 'image' or translation-matrix and perceptual-hash
+        # still-image or short-video: if matches 'image' or translation-matrix + perceptual-hash
         elif framecounter <= 2 and any(True for result in group for frame in result['frames'] if
                 frame['type'] == 'image' or (frame['matrix'] is not None and frame['hamming'] is not None)):
             filter_result = True
@@ -252,7 +252,8 @@ if __name__ == '__main__':
         print('Inference:', filepath, 'seek:',seek, 'duration:',duration, 'scene:['+str(scene_min)+':'+str(scene_max)+']', file=sys.stderr)
     frame_generator = []
     if imghdr.what(filepath):
-        frame_generator.append((filepath, None))
+        offset = os.path.basename(filepath)
+        frame_generator.append((filepath, offset))
     else:
         frame_generator = scenecut(filepath, scene_min=scene_min, scene_max=scene_max, seek=seek, duration=duration)
 
@@ -261,10 +262,10 @@ if __name__ == '__main__':
     for frame, offset, lookup, copyrights in inference(frame_generator):
         frame_counter += 1
         if verbose:
-            offsetlabel = '{:02d}:{:02d}:{:02d}'.format(int(offset/3600000) % 24,int(offset/60000) % 60,int(offset/1000) % 60) if offset is not None else '00:00:00'
-            print(offsetlabel, 'response:', json.dumps(lookup), file=sys.stderr)
+            label = '{:02d}:{:02d}:{:02d}'.format(int(offset/3600000) % 24,int(offset/60000) % 60,int(offset/1000) % 60) if type(offset) in [float,int] else offset
+            print(label, 'response:', json.dumps(lookup), file=sys.stderr)
             frameoffset = frame
-            cv2.putText(frameoffset,offsetlabel, (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 1)
+            cv2.putText(frameoffset,label, (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 1)
             cv2.imshow('frame',frameoffset)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 quit()
