@@ -95,10 +95,12 @@ def inference( frame_generator ):
         if previous:
             yield *previous, None
         previous = frame, offset, lookup
-        # group by uri
-        if not lookup:
+        # whitelist result if frame also in trailer/teaser/...
+        lookup_whitelist = [result for result in lookup if not any(True for f in result['frames'] if f['type'] == 'trailer')]
+        if not lookup_whitelist:
             continue
-        results.append(lookup)
+        # group by uri
+        results.append(lookup_whitelist)
         grouped = [list(group) for k, group in
                    itertools.groupby(sorted([item for result in results for item in result], key=lambda x: x['uri']), lambda x: x['uri'])]
         grouped.sort(key=lambda x:len(x), reverse=True)
@@ -109,10 +111,6 @@ def inference( frame_generator ):
     # To filter, or not to filter: that is the question...
     copyrights = []
     for group in grouped:
-        # whitelist frames in trailer/teaser/...
-        if not [result for result in group if not any(True for f in result['frames'] if f['type'] == 'trailer')]:
-            continue
-
         filter_result = False
         # video: accurate if 3 different frame-offset
         if len(set(frame['offset'] for result in group for frame in result['frames'] if frame['matrix'] is not None)) >= 3:
