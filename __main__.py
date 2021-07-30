@@ -99,12 +99,12 @@ def inference( frame_generator ):
         lookup_whitelist = [result for result in lookup if not any(True for f in result['frames'] if f['type'] == 'trailer')]
         if not lookup_whitelist:
             continue
-        # group by uri
+        # group by uri (3 matches -> unlikely false positive)
         results.append(lookup_whitelist)
         grouped = [list(group) for k, group in
                    itertools.groupby(sorted([item for result in results for item in result], key=lambda x: x['uri']), lambda x: x['uri'])]
         grouped.sort(key=lambda x:len(x), reverse=True)
-        if len(set(frame['offset'] for result in grouped[0] for frame in result['frames'])) >= 3: # 3 matches -> unlikely false positive
+        if len(set(frame['offset'] for result in grouped[0] for frame in result['frames'] if frame['matrix'] is not None)) >= 3:
             break
     if not previous:
         return
