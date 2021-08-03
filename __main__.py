@@ -121,7 +121,10 @@ def inference( frame_generator ):
             filter_result = True
         if filter_result:
             copyrights.append(group[0])
-    yield *previous, copyrights if copyrights else None
+    # Ignore if frame too common
+    if len(copyrights) >= 20:
+        copyrights = None
+    yield *previous, copyrights or None
 
 
 # scenecut @ 500 fps
