@@ -86,7 +86,9 @@ def inference( frame_generator ):
                     img = PIL.Image.alpha_composite(white_background, img.convert('RGBA')).convert('RGB')
                     frame = numpy.array(img, dtype=numpy.uint8)[...,::-1].copy() # RGB->BGR
             except ImportError:
-                frame = cv2.imread(filepath, cv2.IMREAD_COLOR)
+                frame = cv2.imread(frame, cv2.IMREAD_COLOR)
+            except PIL.UnidentifiedImageError:
+                continue
         # ask
         lookup = postframe(frame)
         if lookup is None:
@@ -111,15 +113,15 @@ def inference( frame_generator ):
     # To filter, or not to filter: that is the question...
     copyrights = []
     for group in grouped:
-        filter_result = False
+        copyright = False
         # video: accurate if 3 different frame-offset
         if len(set(frame['offset'] for result in group for frame in result['frames'] if frame['matrix'] is not None)) >= 3:
-            filter_result = True
+            copyright = True
         # still-image or short-video: if matches 'image' or translation-matrix + perceptual-hash
         elif framecounter <= 2 and any(True for result in group for frame in result['frames'] if
                 frame['type'] == 'image' or (frame['matrix'] is not None and frame['hamming'] is not None)):
-            filter_result = True
-        if filter_result:
+            copyright = True
+        if copyright:
             copyrights.append(group[0])
     # Ignore if frame too common
     if len(copyrights) >= 20:
