@@ -7,6 +7,68 @@ import imghdr, urllib.request
 import numpy, cv2
 
 
+# Result from yielded frame
+def inference( frame_generator ):
+
+    # Guess copyright
+    framecounter = 0
+    grouped, results = [], []
+    previous = None
+    for frame, offset in frame_generator:
+        framecounter += 1
+        # filepath?
+        if type(frame) is str:
+            try:
+                import PIL.Image
+                with PIL.Image.open(frame) as img:
+                    white_background = PIL.Image.new('RGBA', img.size, (255,255,255))
+                    img = PIL.Image.alpha_composite(white_background, img.convert('RGBA')).convert('RGB')
+                    frame = numpy.array(img, dtype=numpy.uint8)[...,::-1].copy() # RGB->BGR
+            except ImportError:
+                frame = cv2.imread(frame, cv2.IMREAD_COLOR)
+            except PIL.UnidentifiedImageError:
+                continue
+        # ask
+        lookup = postframe(frame)
+        if lookup is None:
+            continue
+        # yield server-result
+        if previous:
+            yield *previous, None
+        previous = frame, offset, lookup
+        # ignore if frame too common
+        if len(lookup) >= 20:
+            continue
+        # whitelist result if frame also in trailer/teaser/...
+        lookup_whitelist = [result for result in lookup if not any(True for f in result['frames'] if f['type'] == 'trailer')]
+        if not lookup_whitelist:
+            continue
+        # group by uri (3 matches -> unlikely false positive)
+        results.append(lookup_whitelist)
+        grouped = [list(group) for k, group in
+                   itertools.groupby(sorted([item for result in results for item in result], key=lambda x: x['uri']), lambda x: x['uri'])]
+        grouped.sort(key=lambda x:len(x), reverse=True)
+        if len(set(frame['offset'] for result in grouped[0] for frame in result['frames'] if frame['matrix'] is not None)) >= 3:
+            break
+    if not previous:
+        return
+
+    # To filter, or not to filter: that is the question...
+    copyrights = []
+    for group in grouped:
+        copyright = False
+        # video: accurate if 3 different frame-offset
+        if len(set(frame['offset'] for result in group for frame in result['frames'] if frame['matrix'] is not None)) >= 3:
+            copyright = True
+        # still-image or short-video: if matches 'image' or translation-matrix + perceptual-hash
+        elif framecounter <= 2 and any(True for result in group for frame in result['frames'] if
+                frame['type'] == 'image' or (frame['matrix'] is not None and frame['hamming'] is not None)):
+            copyright = True
+        if copyright:
+            copyrights.append(group[0])
+    yield *previous, copyrights or None
+
+
 # ask server
 def postframe( frame ):
 
@@ -66,67 +128,6 @@ def postframe( frame ):
     except urllib.error.HTTPError:
         traceback.print_exc(file=sys.stderr)
     return None
-
-
-# yield frame + result
-def inference( frame_generator ):
-
-    # Guess copyright
-    framecounter = 0
-    grouped, results = [], []
-    previous = None
-    for frame, offset in frame_generator:
-        framecounter += 1
-        # filepath?
-        if type(frame) is str:
-            try:
-                import PIL.Image
-                with PIL.Image.open(frame) as img:
-                    white_background = PIL.Image.new('RGBA', img.size, (255,255,255))
-                    img = PIL.Image.alpha_composite(white_background, img.convert('RGBA')).convert('RGB')
-                    frame = numpy.array(img, dtype=numpy.uint8)[...,::-1].copy() # RGB->BGR
-            except ImportError:
-                frame = cv2.imread(frame, cv2.IMREAD_COLOR)
-            except PIL.UnidentifiedImageError:
-                continue
-        # ask
-        lookup = postframe(frame)
-        if lookup is None:
-            continue
-        # yield server-result
-        if previous:
-            yield *previous, None
-        previous = frame, offset, lookup
-        # whitelist result if frame also in trailer/teaser/...
-        lookup_whitelist = [result for result in lookup if not any(True for f in result['frames'] if f['type'] == 'trailer')]
-        if not lookup_whitelist:
-            continue
-        # group by uri (3 matches -> unlikely false positive)
-        results.append(lookup_whitelist)
-        grouped = [list(group) for k, group in
-                   itertools.groupby(sorted([item for result in results for item in result], key=lambda x: x['uri']), lambda x: x['uri'])]
-        grouped.sort(key=lambda x:len(x), reverse=True)
-        if len(set(frame['offset'] for result in grouped[0] for frame in result['frames'] if frame['matrix'] is not None)) >= 3:
-            break
-    if not previous:
-        return
-    # To filter, or not to filter: that is the question...
-    copyrights = []
-    for group in grouped:
-        copyright = False
-        # video: accurate if 3 different frame-offset
-        if len(set(frame['offset'] for result in group for frame in result['frames'] if frame['matrix'] is not None)) >= 3:
-            copyright = True
-        # still-image or short-video: if matches 'image' or translation-matrix + perceptual-hash
-        elif framecounter <= 2 and any(True for result in group for frame in result['frames'] if
-                frame['type'] == 'image' or (frame['matrix'] is not None and frame['hamming'] is not None)):
-            copyright = True
-        if copyright:
-            copyrights.append(group[0])
-    # Ignore if frame too common
-    if len(copyrights) >= 20:
-        copyrights = None
-    yield *previous, copyrights or None
 
 
 # scenecut @ 500 fps
