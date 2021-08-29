@@ -125,7 +125,7 @@ def postframe( frame ):
                 result_data += decompressor.flush()
         return json.loads(result_data)
 
-    except urllib.error.HTTPError:
+    except (urllib.error.HTTPError, urllib.error.URLError):
         traceback.print_exc(file=sys.stderr)
     return None
 
