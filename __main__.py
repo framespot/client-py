@@ -172,6 +172,7 @@ def scenecut(filepath, scene_min=None, scene_max=None, seek=None, duration=None)
         smallframe = cv2.resize(grayframe, (width, height), interpolation=cv2.INTER_AREA)
 
         kpf = kp_detector.detect(smallframe, None)
+        kpf = list(kpf) # opencv 4.5.4 replaced list-results with tuples
         if len(kpf) < min_keypoints:
             continue
         kpf.sort(key=lambda kp: kp.response, reverse=True)
