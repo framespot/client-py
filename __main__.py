@@ -2,7 +2,7 @@ import sys, os, traceback
 import math, io
 import itertools, getopt
 import json, zlib, random
-import imghdr, urllib.request
+import urllib.request
 # pip install opencv-contrib-python
 import numpy, cv2
 
@@ -11,23 +11,10 @@ import numpy, cv2
 def inference( frame_generator ):
 
     # Guess copyright
-    framecounter = 0
     grouped, results = [], []
     previous = None
-    for frame, offset in frame_generator:
-        framecounter += 1
-        # filepath?
-        if type(frame) is str:
-            try:
-                import PIL.Image
-                with PIL.Image.open(frame) as img:
-                    white_background = PIL.Image.new('RGBA', img.size, (255,255,255))
-                    img = PIL.Image.alpha_composite(white_background, img.convert('RGBA')).convert('RGB')
-                    frame = numpy.array(img, dtype=numpy.uint8)[...,::-1].copy() # RGB->BGR
-            except ImportError:
-                frame = cv2.imread(frame, cv2.IMREAD_COLOR)
-            except PIL.UnidentifiedImageError:
-                continue
+    for framecounter, (frame, offset) in enumerate(frame_generator):
+        assert type(frame) is numpy.ndarray and frame.shape[2] == 3
         # ask
         lookup = postframe(frame)
         if lookup is None:
@@ -211,21 +198,6 @@ def scenecut(filepath, scene_min=None, scene_max=None, seek=None, duration=None)
     cap.release()
 
 
-# Monkeypatch imghdr - https://bugs.python.org/issue28591
-def imghdr_jpeg1(h, f):
-    if b'JFIF' in h[:23]:
-        return 'jpeg'
-def imghdr_jpeg2(h, f):
-    if len(h) >= 32 and 67 == h[5] and h[:32] == b'\xff\xd8\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f':
-        return 'jpeg'
-def imghdr_jpeg3(h, f):
-    if h[6:10] in (b'JFIF', b'Exif') or h[:2] == b'\xff\xd8':
-        return 'jpeg'
-imghdr.tests.append(imghdr_jpeg1)
-imghdr.tests.append(imghdr_jpeg2)
-imghdr.tests.append(imghdr_jpeg3)
-
-
 # main
 if __name__ == '__main__':
 
@@ -255,17 +227,79 @@ if __name__ == '__main__':
 
     if verbose:
         print('Inference:', filepath, 'seek:',seek, 'duration:',duration, 'scene:['+str(scene_min)+':'+str(scene_max)+']', file=sys.stderr)
-    frame_generator = []
-    if imghdr.what(filepath):
-        offset = os.path.basename(filepath)
-        frame_generator.append((filepath, offset))
-    else:
+
+    # Detect video (container only, could also match an audio)
+    is_video = False
+    with open(filepath, 'rb') as fp:
+        buf = bytearray(fp.read(8192))
+    # video/mp4 (.mp4) + video/quicktime (.mov) + video/x-m4v (.m4v)
+    if len(buf) > 8 and buf[4] == 0x66 and buf[5] == 0x74 and buf[6] == 0x79 and buf[7] == 0x70:
+        ftyp_len = int.from_bytes(buf[0:4], byteorder='big')
+        if len(buf) > 10 and buf[0] == 0x0 and buf[1] == 0x0 and buf[2] == 0x0 and buf[3] == 0x1C and buf[8] == 0x4D and buf[9] == 0x34 and buf[10] == 0x56:
+            is_video = True
+        elif len(buf) >= ftyp_len:
+            major_brand = buf[8:12].decode(errors='ignore')
+            compatible_brands = [buf[i:i+4].decode(errors='ignore') for i in range(16, ftyp_len, 4)]
+            if major_brand in ['mp41','mp42','isom','qt  ']:
+                is_video = True
+            elif 'mp41' in compatible_brands or 'mp42' in compatible_brands or 'isom' in compatible_brands:
+                is_video = True
+    # video/webm (.webm) + video/x-matroska (.mkv)
+    elif buf.startswith(b'\x1A\x45\xDF\xA3') and (buf.find(b'\x42\x82\x84webm') > -1 or buf.find(b'\x42\x82\x88matroska') > -1):
+        is_video = True
+    # video/mpeg (.mpg)
+    elif len(buf) > 3 and buf[0] == 0x0 and buf[1] == 0x0 and buf[2] == 0x1 and buf[3] >= 0xb0 and buf[3] <= 0xbf:
+        is_video = True
+    # video/mp2t (.ts)
+    #elif len(buf) > 12 and buf[0] == 0x47 and ...:
+    #    is_video = True
+    # video/x-msvideo (.avi)
+    elif len(buf) > 11 and buf[0] == 0x52 and buf[1] == 0x49 and buf[2] == 0x46 and buf[3] == 0x46 and buf[8] == 0x41 and buf[9] == 0x56 and buf[10] == 0x49 and buf[11] == 0x20:
+        is_video = True
+    # video/x-ms-wmv (.wmv)
+    elif len(buf) > 9 and buf[0] == 0x30 and buf[1] == 0x26 and buf[2] == 0xB2 and buf[3] == 0x75 and buf[4] == 0x8E and buf[5] == 0x66 and buf[6] == 0xCF and buf[7] == 0x11 and buf[8] == 0xA6 and buf[9] == 0xD9:
+        is_video = True
+    # video/3gpp (.3gp)
+    elif len(buf) > 7 and buf[0] == 0x66 and buf[1] == 0x74 and buf[2] == 0x79 and buf[3] == 0x70 and buf[4] == 0x33 and buf[5] == 0x67 and buf[6] == 0x70:
+        is_video = True
+    # video/x-flv (.flv)
+    elif len(buf) > 3 and buf[0] == 0x46 and buf[1] == 0x4C and buf[2] == 0x56 and buf[3] == 0x01:
+        is_video = True
+    # image/gif (.gif)
+    elif len(buf) > 2 and buf[0] == 0x47 and buf[1] == 0x49 and buf[2] == 0x46:
+        if b'\x21\xFF\x0B\x4E\x45\x54\x53\x43\x41\x50\x45\x32\x2E\x30' in buf:  # animated
+            is_video = True
+    # image/webp (.webp)
+    elif len(buf) > 16 and buf[0] == 0x52 and buf[1] == 0x49 and buf[2] == 0x46 and buf[3] == 0x46 and buf[8] == 0x57 and buf[9] == 0x45 and buf[10] == 0x42 and buf[11] == 0x50 and buf[12] == 0x56 and buf[13] == 0x50:
+        if buf[12:16] == b'VP8X' and buf[16] & 2 != 0:  # animated
+            is_video = True
+
+    # Frame generator
+    if is_video:
         frame_generator = scenecut(filepath, scene_min=scene_min, scene_max=scene_max, seek=seek, duration=duration)
+    else:
+        frame = cv2.imread( filepath, cv2.IMREAD_UNCHANGED )
+        if frame is None or frame.dtype != numpy.uint8 or len(frame.shape) == 2 or frame.shape[2] != 3:
+            try:
+                import PIL.Image
+                with PIL.Image.open(filepath) as img:
+                    if img.mode != 'RGB':
+                        white_background = PIL.Image.new('RGBA', img.size, (255,255,255))
+                        img = PIL.Image.alpha_composite(white_background, img.convert('RGBA')).convert('RGB')
+                    frame = numpy.array(img, dtype=numpy.uint8)[...,::-1].copy() # RGB->BGR
+            except ImportError:
+                frame = None
+            except PIL.UnidentifiedImageError:
+                frame = None
+        if frame is None:
+            print('Could not open', filepath, file=sys.stderr)
+            sys.exit(os.EX_NOINPUT)
+        frame_generator = [(frame, None)]
 
     # Lookup frames
-    frame_counter = 0
+    got_frames = False
     for frame, offset, lookup, copyrights in inference(frame_generator):
-        frame_counter += 1
+        got_frames = True
         if verbose:
             label = '{:02d}:{:02d}:{:02d}'.format(int(offset/3600000) % 24,int(offset/60000) % 60,int(offset/1000) % 60) if type(offset) in [float,int] else offset
             print(label, 'response:', json.dumps(lookup), file=sys.stderr)
@@ -278,7 +312,7 @@ if __name__ == '__main__':
             print(json.dumps(copyrights, indent=2))
             break
 
-    if frame_counter == 0:
+    if not got_frames:
         print('Did not yield frames', file=sys.stderr)
         sys.exit(os.EX_NOINPUT)
     if verbose:
