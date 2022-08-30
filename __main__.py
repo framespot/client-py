@@ -291,10 +291,7 @@ if __name__ == '__main__':
                 frame = None
             except PIL.UnidentifiedImageError:
                 frame = None
-        if frame is None:
-            print('Could not open', filepath, file=sys.stderr)
-            sys.exit(os.EX_NOINPUT)
-        frame_generator = [(frame, None)]
+        frame_generator = [(frame, None)] if frame is not None else []
 
     # Lookup frames
     got_frames = False
@@ -313,7 +310,7 @@ if __name__ == '__main__':
             break
 
     if not got_frames:
-        print('Did not yield frames', file=sys.stderr)
+        print('Did not yield frames:', filepath, file=sys.stderr)
         sys.exit(os.EX_NOINPUT)
     if verbose:
         cv2.waitKey()
